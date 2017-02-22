@@ -20,14 +20,31 @@ A collection of helper functions used by the CLI and its Plugins.
 
 import imp
 import importlib
+import logging
 import os
 import re
 import sys
+import time
 import textwrap
 
 import netifaces
 
 from mesos.exceptions import CLIException
+
+
+def get_logger(name):
+    """Get a logger
+
+    :param name: The name of the logger. E.g. __name__
+    :type name: str
+    :returns: The logger for the specified name
+    :rtype: logging.Logger
+    """
+
+    return logging.getLogger(name)
+
+
+logger = get_logger(__name__)
 
 
 def import_modules(package_paths, module_type):
@@ -288,3 +305,26 @@ class Table(object):
             table.add_row(row)
 
         return table
+
+
+def duration(fn):
+    """ Decorator to log the duration of a function.
+
+    :param fn: function to measure
+    :type fn: function
+    :returns: wrapper function
+    :rtype: function
+    """
+
+    @functools.wraps(fn)
+    def timer(*args, **kwargs):
+        start = time.time()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            logger.debug("duration: {0}.{1}: {2:2.2f}s".format(
+                fn.__module__,
+                fn.__name__,
+                time.time() - start))
+
+    return timer
