@@ -26,8 +26,13 @@ import urllib2
 import requests
 
 from mesos import util
-from mesos.exceptions import (CLIException, MesosException)
-
+from mesos.exceptions import (CLIException,
+                              MesosAuthenticationException,
+                              MesosAuthorizationException,
+                              MesosBadRequest,
+                              MesosException,
+                              MesosHTTPException,
+                              MesosUnprocessableException)
 
 DEFAULT_TIMEOUT = 5
 LOGGER = util.get_logger(__name__)
@@ -187,3 +192,45 @@ def _request(method,
 def silence_requests_warnings():
     """Silence warnings from requests.packages.urllib3.  See DCOS-1007."""
     requests.packages.urllib3.disable_warnings()
+
+
+def request(method,
+            url,
+            is_success=_default_is_success,
+            timeout=None,
+            verify=None,
+            **kwargs):
+    """Sends an HTTP request. If the server responds with a 401, ask the
+    user for their credentials, and try request again (up to 3 times).
+
+    :param method: method for the new Request object
+    :type method: str
+    :param url: URL for the new Request object
+    :type url: str
+    :param is_success: Defines successful status codes for the request
+    :type is_success: Function from int to bool
+    :param timeout: request timeout
+    :type timeout: int
+    :param verify: whether to verify SSL certs or path to cert(s)
+    :type verify: bool | str
+    :param kwargs: Additional arguments to requests.request
+        (see http://docs.python-requests.org/en/latest/api/#requests.request)
+    :type kwargs: dict
+    :rtype: Response
+    """
+
+    response = _request(method, url, is_success, timeout, verify=verify,
+                        **kwargs)
+
+    if is_success(response.status_code):
+        return response
+    elif response.status_code == 401:
+        raise MesosAuthenticationException(response)
+    elif response.status_code == 422:
+        raise MesosUnprocessableException(response)
+    elif response.status_code == 403:
+        raise MesosAuthorizationException(response)
+    elif response.status_code == 400:
+        raise MesosBadRequest(response)
+    else:
+        raise MesosHTTPException(response)
