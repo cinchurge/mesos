@@ -19,6 +19,7 @@ The task plugin.
 """
 
 from mesos.plugins import PluginBase
+from mesos.client import MesosClient, Master
 
 PLUGIN_CLASS = "Task"
 PLUGIN_NAME = "task"
@@ -37,8 +38,8 @@ class Task(PluginBase):
         "list" : {
             "arguments" : [],
             "flags" : {
-                "--agent=<addr>" : "IP and port of master " + \
-                                   "[default: {master_ip}:{master_port}]"
+                "--master=<addr>" : "IP and port of master " + \
+                                    "[default: {master_ip}:{master_port}]"
             },
             "short_help" : "List all running tasks on an master",
             "long_help"  : """\
@@ -64,7 +65,10 @@ class Task(PluginBase):
         """
         Lists all tasks on a master.
         """
-        print "list: argv=%s" % argv
+        cli = MesosClient(argv["--master"], 120)
+        tasks = Master(cli.get_master_state()).tasks()
+        for tsk in tasks:
+            print tsk.dict()
 
     def execute(self, argv, redirect_io=False):
         """

@@ -219,7 +219,7 @@ def request(method,
     :rtype: Response
     """
 
-    response = _request(method, url, is_success, timeout, verify=verify,
+    response = _request(method, url, timeout=timeout, verify=verify,
                         **kwargs)
 
     if is_success(response.status_code):
@@ -234,3 +234,94 @@ def request(method,
         raise MesosBadRequest(response)
     else:
         raise MesosHTTPException(response)
+
+
+def head(url, **kwargs):
+    """Sends a HEAD request.
+
+    :param url: URL for the new Request object
+    :type url: str
+    :param kwargs: Additional arguments to requests.request
+                   (see py:func:`request`)
+    :type kwargs: dict
+    :rtype: Response
+    """
+
+    return request('head', url, **kwargs)
+
+
+def get(url, **kwargs):
+    """Sends a GET request.
+
+    :param url: URL for the new Request object
+    :type url: str
+    :param kwargs: Additional arguments to requests.request
+                   (see py:func:`request`)
+    :type kwargs: dict
+    :rtype: Response
+    """
+    return request('get', url, **kwargs)
+
+
+def post(url, data=None, payload=None, **kwargs):
+    """Sends a POST request.
+
+    :param url: URL for the new Request object
+    :type url: str
+    :param data: Request body
+    :type data: dict, bytes, or file-like object
+    :param payload: JSON request body
+    :type data: dict
+    :param kwargs: Additional arguments to requests.request
+                   (see py:func:`request`)
+    :type kwargs: dict
+    :rtype: Response
+    """
+
+    return request('post', url, data=data, json=payload, **kwargs)
+
+
+def put(url, data=None, **kwargs):
+    """Sends a PUT request.
+
+    :param url: URL for the new Request object
+    :type url: str
+    :param data: Request body
+    :type data: dict, bytes, or file-like object
+    :param kwargs: Additional arguments to requests.request
+                   (see py:func:`request`)
+    :type kwargs: dict
+    :rtype: Response
+    """
+
+    return request('put', url, data=data, **kwargs)
+
+
+def patch(url, data=None, **kwargs):
+    """Sends a PATCH request.
+
+    :param url: URL for the new Request object
+    :type url: str
+    :param data: Request body
+    :type data: dict, bytes, or file-like object
+    :param kwargs: Additional arguments to requests.request
+                   (see py:func:`request`)
+    :type kwargs: dict
+    :rtype: Response
+    """
+
+    return request('patch', url, data=data, **kwargs)
+
+
+def delete(url, **kwargs):
+    """Sends a DELETE request.
+
+    :param url: URL for the new Request object
+    :type url: str
+    :param kwargs: Additional arguments to requests.request
+                   (see py:func:`request`)
+    :type kwargs: dict
+    :rtype: Response
+    """
+
+    return request('delete', url, **kwargs)
