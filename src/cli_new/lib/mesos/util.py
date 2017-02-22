@@ -18,6 +18,7 @@
 A collection of helper functions used by the CLI and its Plugins.
 """
 
+import functools
 import imp
 import importlib
 import logging
@@ -44,7 +45,7 @@ def get_logger(name):
     return logging.getLogger(name)
 
 
-logger = get_logger(__name__)
+LOGGER = get_logger(__name__)
 
 
 def import_modules(package_paths, module_type):
@@ -307,24 +308,25 @@ class Table(object):
         return table
 
 
-def duration(fn):
+def duration(fnc):
     """ Decorator to log the duration of a function.
 
-    :param fn: function to measure
-    :type fn: function
+    :param fnc: function to measure
+    :type fnc: function
     :returns: wrapper function
     :rtype: function
     """
 
-    @functools.wraps(fn)
+    @functools.wraps(fnc)
     def timer(*args, **kwargs):
+        """timer calculates and prints the duration of fnc"""
         start = time.time()
         try:
-            return fn(*args, **kwargs)
+            return fnc(*args, **kwargs)
         finally:
-            logger.debug("duration: {0}.{1}: {2:2.2f}s".format(
-                fn.__module__,
-                fn.__name__,
-                time.time() - start))
+            LOGGER.debug("duration: %s.%s: %2.2fs",
+                         fnc.__module__,
+                         fnc.__name__,
+                         time.time() - start)
 
     return timer

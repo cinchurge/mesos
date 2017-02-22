@@ -25,6 +25,33 @@ import time
 from mesos.exceptions import CLIException
 
 
+def _default_is_success(status_code):
+    """Returns true if the success status is between [200, 300).
+
+    :param response_status: the http response status
+    :type response_status: int
+    :returns: True for success status; False otherwise
+    :rtype: bool
+    """
+
+    return 200 <= status_code < 300
+
+
+def _verify_ssl(verify=None):
+    """Returns whether to verify ssl
+
+    :param verify: whether to verify SSL certs or path to cert(s)
+    :type verify: bool | str
+    :return: whether to verify SSL certs or path to cert(s)
+    :rtype: bool | str
+    """
+
+    if verify is None:
+        verify = False
+
+    return verify
+
+
 def read_endpoint(addr, endpoint):
     """
     Read the specified endpoint and return the results.
