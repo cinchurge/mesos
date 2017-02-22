@@ -47,6 +47,9 @@ PLUGINS = [
     os.path.join(PROJECT_DIR, "lib/mesos/plugins", "container")
 ]
 
+# Default master parameters
+MASTER_IP = "127.0.0.1"
+MASTER_PORT = "5050"
 
 # Default agent parameters.
 AGENT_IP = "127.0.0.1"

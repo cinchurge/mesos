@@ -100,6 +100,8 @@ class PluginBase(object):
             self.USAGE = getattr(module, "USAGE")
 
         config_vars = {
+            "master_ip" : config.MASTER_IP,
+            "master_port" : config.MASTER_PORT,
             "agent_ip" : config.AGENT_IP,
             "agent_port" : config.AGENT_PORT
         }
