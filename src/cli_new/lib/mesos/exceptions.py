@@ -18,8 +18,16 @@
 CLIException Class
 """
 
+
 class CLIException(Exception):
     """
     Exceptions class to handle all CLI errors.
+    """
+    pass
+
+
+class MesosException(Exception):
+    """
+    Exceptions class to handle all mesos errors
     """
     pass

@@ -19,10 +19,18 @@ A collection of http related functions used by the CLI and its Plugins.
 """
 
 import json
-import urllib2
 import time
+import urllib2
 
-from mesos.exceptions import CLIException
+# requests must be imported last
+import requests
+
+from mesos import util
+from mesos.exceptions import (CLIException, MesosException)
+
+
+DEFAULT_TIMEOUT = 5
+LOGGER = util.get_logger(__name__)
 
 
 def _default_is_success(status_code):
@@ -103,3 +111,79 @@ def get_json(addr, endpoint, condition=None, timeout=5):
                                .format(seconds=str(timeout)))
 
         time.sleep(0.1)
+
+
+@util.duration
+def _request(method,
+             url,
+             timeout=DEFAULT_TIMEOUT,
+             auth=None,
+             verify=None,
+             **kwargs):
+    """Sends an HTTP request.
+
+    :param method: method for the new Request object
+    :type method: str
+    :param url: URL for the new Request object
+    :type url: str
+    :param is_success: Defines successful status codes for the request
+    :type is_success: Function from int to bool
+    :param timeout: request timeout
+    :type timeout: int
+    :param auth: authentication
+    :type auth: AuthBase
+    :param verify: whether to verify SSL certs or path to cert(s)
+    :type verify: bool | str
+    :param kwargs: Additional arguments to requests.request
+        (see http://docs.python-requests.org/en/latest/api/#requests.request)
+    :type kwargs: dict
+    :rtype: Response
+    """
+
+    if 'headers' not in kwargs:
+        kwargs['headers'] = {'Accept': 'application/json'}
+
+    verify = _verify_ssl(verify)
+
+    # Silence 'Unverified HTTPS request' and 'SecurityWarning' for bad certs
+    if verify is not None:
+        silence_requests_warnings()
+
+    LOGGER.info(
+        'Sending HTTP [%r] to [%r]: %r',
+        method,
+        url,
+        kwargs.get('headers'))
+
+    try:
+        response = requests.request(
+            method=method,
+            url=url,
+            timeout=timeout,
+            auth=auth,
+            verify=verify,
+            **kwargs)
+    except requests.exceptions.SSLError as err:
+        LOGGER.exception("HTTP SSL Error")
+        msg = "An SSL error occurred: {0}".format(err)
+        raise MesosException(msg)
+    except requests.exceptions.ConnectionError as err:
+        LOGGER.exception("HTTP Connection Error")
+        raise MesosException('URL [{0}] is unreachable: {1}'.format(url, err))
+    except requests.exceptions.Timeout:
+        LOGGER.exception("HTTP Timeout")
+        raise MesosException('Request to URL [{0}] timed out.'.format(url))
+    except requests.exceptions.RequestException as err:
+        LOGGER.exception("HTTP Exception")
+        raise MesosException('HTTP Exception: {}'.format(err))
+
+    LOGGER.info('Received HTTP response [%r]: %r',
+                response.status_code,
+                response.headers)
+
+    return response
+
+
+def silence_requests_warnings():
+    """Silence warnings from requests.packages.urllib3.  See DCOS-1007."""
+    requests.packages.urllib3.disable_warnings()
