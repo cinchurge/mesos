@@ -18,16 +18,48 @@
 A collection of helper functions used by the CLI and its Plugins.
 """
 
+import contextlib
+import functools
 import imp
 import importlib
+import json
+import logging
 import os
+import platform
 import re
+import stat
 import sys
+import time
 import textwrap
 
+import concurrent.futures
+import jsonschema
 import netifaces
+import six
 
-from mesos.exceptions import CLIException
+from mesos.exceptions import (
+    CLIException,
+    MesosException,
+    MesosIOException,
+)
+
+
+STREAM_CONCURRENCY = 20
+
+
+def get_logger(name):
+    """Get a logger
+
+    :param name: The name of the logger. E.g. __name__
+    :type name: str
+    :returns: The logger for the specified name
+    :rtype: logging.Logger
+    """
+
+    return logging.getLogger(name)
+
+
+LOGGER = get_logger(__name__)
 
 
 def import_modules(package_paths, module_type):
@@ -155,7 +187,7 @@ def format_subcommands_help(cmd):
 
         flag_string = flag_string.rstrip()
 
-    return (arguments, short_help, long_help, flag_string)
+    return arguments, short_help, long_help, flag_string
 
 
 def verify_root():
@@ -166,12 +198,14 @@ def verify_root():
         raise CLIException("Unable to run command as non-root user:"
                            " Consider running with 'sudo'")
 
+
 def verify_linux():
     """
     Verify that this command is being executed on a Linux machine.
     """
     if sys.platform != "linux2":
         raise CLIException("Unable to run command on non-linux system")
+
 
 def is_local(addr):
     """
@@ -225,7 +259,7 @@ class Table(object):
         """
         Returns the dimensions of the table as (<num-rows>, <num-columns>).
         """
-        return (len(self.table), len(self.table[0]))
+        return len(self.table), len(self.table[0])
 
     def add_row(self, row):
         """
@@ -288,3 +322,213 @@ class Table(object):
             table.add_row(row)
 
         return table
+
+
+def duration(func):
+    """ Decorator to log the duration of a function.
+
+    :param func: function to measure
+    :type func: function
+    :returns: wrapper function
+    :rtype: function
+    """
+
+    @functools.wraps(func)
+    def timer(*args, **kwargs):
+        """timer calculates and prints the duration of fnc"""
+        start = time.time()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            LOGGER.debug("duration: %s.%s: %2.2fs",
+                         func.__module__,
+                         func.__name__,
+                         time.time() - start)
+
+    return timer
+
+
+def ensure_dir_exists(directory):
+    """If `directory` does not exist, create it.
+
+    :param directory: path to the directory
+    :type directory: string
+    :rtype: None
+    """
+
+    if not os.path.exists(directory):
+        LOGGER.info('Creating directory: %r', directory)
+
+        try:
+            os.makedirs(directory, 0o775)
+        except os.error as err:
+            raise MesosException(
+                'Cannot create directory [{}]: {}'.format(directory, err))
+
+
+def ensure_file_exists(path):
+    """ Create file if it doesn't exist
+
+    :param path: path of file to create
+    :type path: str
+    :rtype: None
+    """
+
+    if not os.path.exists(path):
+        try:
+            open(path, 'w').close()
+            os.chmod(path, 0o600)
+        except IOError as err:
+            raise MesosException(
+                'Cannot create file [{}]: {}'.format(path, err))
+
+
+def enforce_file_permissions(path):
+    """Enforce 400 or 600 permissions on file
+
+    :param path: Path to the TOML file
+    :type path: str
+    :rtype: None
+    """
+
+    if not os.path.isfile(path):
+        raise MesosException('Path [{}] is not a file'.format(path))
+
+    # Unix permissions are incompatible with windows
+    # TODO: https://github.com/dcos/dcos-cli/issues/662
+    if sys.platform == 'win32':
+        return
+
+    permissions = oct(stat.S_IMODE(os.lstat(path).st_mode))
+    if permissions not in ['0o600', '0600', '0o400', '0400']:
+        msg = (
+            "Permissions '{}' for configuration file '{}' are too open. "
+            "File must only be accessible by owner. "
+            "Aborting...".format(permissions, path))
+        raise MesosException(msg)
+
+
+@contextlib.contextmanager
+def open_file(path, *args, **kwargs):
+    """Context manager that opens a file, and raises a DCOSException if
+    it fails.
+
+    :param path: file path
+    :type path: str
+    :param *args: other arguments to pass to `open`
+    :type *args: [str]
+    :returns: a context manager
+    :rtype: context manager
+    """
+
+    try:
+        with open(path, *args, **kwargs) as file_:
+            yield file_
+    except IOError as err:
+        LOGGER.exception('Unable to open file: %s', path)
+        raise MesosIOException(path, err.errno)
+
+
+def validate_json(instance, schema):
+    """Validate an instance under the given schema.
+
+    :param instance: the instance to validate
+    :type instance: dict
+    :param schema: the schema to validate with
+    :type schema: dict
+    :returns: list of errors as strings
+    :rtype: [str]
+    """
+
+    def sort_key(validation_error):
+        """Key for sorting validation errors"""
+        return validation_error.message
+
+    validator = jsonschema.Draft4Validator(schema)
+    validation_errors = list(validator.iter_errors(instance))
+    validation_errors = sorted(validation_errors, key=sort_key)
+
+    return [_format_validation_error(e) for e in validation_errors]
+
+
+def _format_validation_error(error):
+    """
+    :param error: validation error to format
+    :type error: jsonchema.exceptions.ValidationError
+    :returns: string representation of the validation error
+    :rtype: str
+    """
+
+    match = re.search("(.+) is a required property", error.message)
+    if match:
+        message = 'Error: missing required property {}.'.format(
+            match.group(1))
+    else:
+        message = 'Error: {}\n'.format(error.message)
+        if len(error.absolute_path) > 0:
+            message += 'Path: {}\n'.format('.'.join(
+                [six.text_type(path)
+                 for path in error.absolute_path]))
+        message += 'Value: {}'.format(json.dumps(error.instance))
+
+    return message
+
+
+def list_to_err(errs):
+    """convert list of error strings to a single string
+
+    :param errs: list of string errors
+    :type errs: [str]
+    :returns: error message
+    :rtype: str
+    """
+
+    return str.join('\n\n', errs)
+
+
+def is_windows_platform():
+    """
+    :returns: True is program is running on Windows platform, False
+     in other case
+    :rtype: boolean
+    """
+
+    return platform.system() == "Windows"
+
+
+def parse_int(string):
+    """Parse string and an integer
+
+    :param string: string to parse as an integer
+    :type string: str
+    :returns: the interger value of the string
+    :rtype: int
+    """
+
+    try:
+        return int(string)
+    except:
+        LOGGER.error(
+            'Unhandled exception while parsing string as int: %r',
+            string)
+
+        raise MesosException('Error parsing string as int')
+
+
+def stream(func, objs):
+    """Apply `fn` to `objs` in parallel, yielding the (Future, obj) for
+    each as it completes.
+
+    :param func: function
+    :type func: function
+    :param objs: objs
+    :type objs: objs
+    :returns: iterator over (Future, typeof(obj))
+    :rtype: iterator over (Future, typeof(obj))
+
+    """
+
+    with concurrent.futures.ThreadPoolExecutor(STREAM_CONCURRENCY) as pool:
+        jobs = {pool.submit(func, obj): obj for obj in objs}
+        for job in concurrent.futures.as_completed(jobs):
+            yield job, jobs[job]
